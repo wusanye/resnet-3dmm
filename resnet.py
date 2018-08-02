@@ -10,13 +10,19 @@ import numpy as np
 
 
 class ResNet(object):
-    def __init__(self, x, class_num):
+    def __init__(self, x, output_dim):
         self.verbose = True
         self.x = x
-        self.class_num = class_num
+        self.output_dim = output_dim
 
     def ResNet101(self):
-        self.build_net("bottleneck", [3, 4, 23, 3])
+        self.build_net("Bottleneck", [3, 4, 23, 3])
+
+    def ResNet34(self):
+        self.build_net("BasicBlock", [3, 4, 6, 3])
+
+    def ResNet18(self):
+        self.build_net("BasicBlock", [2, 2, 2, 2])
 
     def build_net(self, block_type, repeats):
         """build the ResNet"""
@@ -33,10 +39,10 @@ class ResNet(object):
             filter_num *= 2
 
         block_shape = block.get_shape().as_list()
-        pool2 = tf.nn.avg_pool(block, ksize=[1, block_shape[1], block_shape[2], 1], strides=[1, 1, 1, 1])
+        pool2 = tf.nn.avg_pool(block, ksize=[1, block_shape[1], block_shape[2], 1], strides=[1, 1, 1, 1], padding='SAME')
 
         flattened = self._flatten(pool2)
-        out = self._fc_layer(flattened, self.class_num)
+        out = self._fc_layer(flattened, self.output_dim)
 
         self.predicts = out
 
@@ -48,9 +54,9 @@ class ResNet(object):
                 init_strides = (2, 2)
             is_first = (is_first_layer and i == 0)
 
-            if block_type == "normal":
+            if block_type == "BasicBlock":
                 x = self.basic_block(x, filter_num, init_strides, is_first)
-            elif block_type == "bottleneck":
+            elif block_type == "Bottleneck":
                 x = self.bottleneck(x, filter_num, init_strides, is_first)
 
         return x
@@ -61,7 +67,7 @@ class ResNet(object):
         implemented with pre-activation ResNet.
         """
         filter_shape = [3, 3, x.get_shape().as_list()[-1], filter_num]
-        stride_shape = init_strides.as_list()
+        stride_shape = list(init_strides)
         w = self._get_weight_variable(filter_shape)
 
         if is_first_block_of_first_layer:
@@ -174,8 +180,8 @@ class ResNet(object):
     def _fc_layer(x, num_out, activation=None):
         """fully connected layer"""
         num_in = x.get_shape().as_list()[-1]
-        weight = tf.Variable(tf.truncated_normal([num_in, num_out], stddev=0.1))
-        bias = tf.Variable(tf.zeros([num_out, ]))
+        weight = tf.Variable(tf.truncated_normal([num_in, num_out], stddev=0.1), name="fc_weights")
+        bias = tf.Variable(tf.zeros([num_out, ]), name="fc_biases")
         output = tf.nn.xw_plus_b(x, weight, bias)
         if activation:
             output = activation(output)

@@ -22,8 +22,7 @@ class DataGenerator(object):
     """
     def __init__(self, txt_file, mode, batch_size, shuffle=True,
                  buffer_size=10000):
-        """
-        Create a new ImageDataGenerator.
+        """Create a new ImageDataGenerator.
         Receives a path string to a text file, which consists of many lines,
         where each line has first a path string to an image and seperated by
         a space an integer, referring to the class number. Using this data,
@@ -58,6 +57,9 @@ class DataGenerator(object):
         # convert lists to TF tensor
         self.img_paths = convert_to_tensor(self.img_paths, dtype=dtypes.string)
         self.labels = convert_to_tensor(self.labels, dtype=dtypes.float32)
+
+        # norm = tf.constant(1000., dtype=tf.float32)
+        # self.labels = tf.divide(self.labels, norm)
 
         # slice first dimension of tensor to create dataset
         data = Dataset.from_tensor_slices((self.img_paths, self.labels))
@@ -113,9 +115,9 @@ class DataGenerator(object):
 
         # load and pre-process the image
         img_string = tf.read_file(img_file)
-        img_decoded = tf.image.decode_png(img_string, channels=3)
-        img_resized = tf.image.resize_images(img_decoded, [240, 240])
-        img_centered = tf.subtract(img_resized, TRAIN_SET_MEAN)
+        img_decoded = tf.image.decode_jpeg(img_string, channels=3)
+        img_resized = tf.image.resize_images(img_decoded, [224, 224])
+        img_centered = tf.divide(tf.cast(img_resized, tf.float32), 255.)
 
         # RGB -> BGR
         # # img_bgr = img_centered[:, :, ::-1]
@@ -132,12 +134,30 @@ class DataGenerator(object):
         img_string = tf.read_file(filename)
         img_decoded = tf.image.decode_png(img_string, channels=3)
         img_resized = tf.image.resize_images(img_decoded, [227, 227])
-        img_centered = tf.subtract(img_resized, TRAIN_SET_MEAN)
+        img_centered = tf.divide(tf.cast(img_resized, tf.float32), 255.)
 
         # RGB -> BGR
         # # img_bgr = img_centered[:, :, ::-1]
 
         return img_centered, label
+
+
+def asymmetric_euclidean_loss(predicts, truth):
+    """Implementation of Asymmetric Euclidean Loss
+    Args:
+        predicts: predicted output, dim (batch, output_len)
+        truth: ground truth
+    Returns:
+        Asymmetric Euclidean Loss over the batch
+    """
+    lambda1 = tf.constant(1, dtype=tf.float32)
+    lambda2 = tf.constant(3, dtype=tf.float32)
+    gamma_plus = tf.abs(truth)
+    gamma_pplus = tf.sign(truth) * predicts
+    gamma_max = tf.maximum(gamma_plus, gamma_pplus)
+    over_estimate = lambda1 * tf.square(tf.norm(gamma_plus - gamma_max, axis=1))
+    under_estimate = lambda2 * tf.square(tf.norm(gamma_pplus - gamma_max, axis=1))
+    return tf.reduce_mean(over_estimate + under_estimate)
 
 
 def read_txt(file_name):

@@ -4,6 +4,7 @@ from utils import DataGenerator
 from tensorflow.data import Iterator
 import cv2
 from matplotlib import pyplot as plt
+from keras_applications import resnet50
 
 batch_size = 1
 train_file = "train.list"
