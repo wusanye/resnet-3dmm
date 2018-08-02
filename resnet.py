@@ -15,9 +15,10 @@ class ResNet(object):
         self.x = x
         self.class_num = class_num
 
-        self._build_net()
+    def ResNet101(self):
+        self.build_net("bottleneck", [3, 4, 23, 3])
 
-    def _build_net(self, block_func, repeats):
+    def build_net(self, block_type, repeats):
         """build the ResNet"""
         filter_shape = [7, 7, 3, 64]
         stride_shape = [2, 2]
@@ -28,7 +29,7 @@ class ResNet(object):
         block = pool1
         filter_num = 64
         for i, r in enumerate(repeats):
-            block = self.resudial_block(block, block_func, filter_num, r, (i == 0))
+            block = self.residual_block(block, block_type, filter_num, r, (i == 0))
             filter_num *= 2
 
         block_shape = block.get_shape().as_list()
@@ -39,31 +40,18 @@ class ResNet(object):
 
         self.predicts = out
 
-    def _fc_layer(self, x, num_out, activation=None):
-        """fully connected layer"""
-        num_in = x.get_shape().as_list()[-1]
-        weight = tf.Variable(tf.truncated_normal([num_in, num_out], stddev=0.1))
-        bias = tf.Variable(tf.zeros([num_out, ]))
-        output = tf.nn.xw_plus_b(x, weight, bias)
-        if activation:
-            output = activation(output)
-
-        return output
-
-    def _flatten(self, x):
-        """flatten layer"""
-        tran_x = tf.transpose(x, [0, 3, 1, 2])  # channel first mode
-        nums = np.prod(x.get_shape().as_list()[1:])  # C*W*H
-        return tf.reshape(tran_x, [-1, nums])  # samples * (C*W*H)
-
-    def resudial_block(self, x, block_func, filter_num, repeats, is_fisrt_layer=False):
+    def residual_block(self, x, block_type, filter_num, repeats, is_first_layer=False):
         """bulid the residual block with repeated block"""
         for i in range(repeats):
             init_strides = (1, 1)
-            if i == 0 and not is_fisrt_layer:
+            if i == 0 and not is_first_layer:
                 init_strides = (2, 2)
-            is_first = (is_fisrt_layer and i == 0)
-            x = block_func(x, filter_num, init_strides, is_first)
+            is_first = (is_first_layer and i == 0)
+
+            if block_type == "normal":
+                x = self.basic_block(x, filter_num, init_strides, is_first)
+            elif block_type == "bottleneck":
+                x = self.bottleneck(x, filter_num, init_strides, is_first)
 
         return x
 
@@ -182,7 +170,26 @@ class ResNet(object):
 
         return out
 
-    def _get_weight_variable(self, shape, name=None):
+    @staticmethod
+    def _fc_layer(x, num_out, activation=None):
+        """fully connected layer"""
+        num_in = x.get_shape().as_list()[-1]
+        weight = tf.Variable(tf.truncated_normal([num_in, num_out], stddev=0.1))
+        bias = tf.Variable(tf.zeros([num_out, ]))
+        output = tf.nn.xw_plus_b(x, weight, bias)
+        if activation:
+            output = activation(output)
+
+        return output
+
+    @staticmethod
+    def _flatten(x):
+        """flatten layer"""
+        nums = np.prod(x.get_shape().as_list()[1:])  # C*W*H
+        return tf.reshape(x, [-1, nums])  # samples * (C*W*H)
+
+    @staticmethod
+    def _get_weight_variable(shape, name=None):
         """weight initialization"""
         # shape: [height, width, in_depth, out_depth]
         initial = tf.truncated_normal(shape, stddev=0.1)
