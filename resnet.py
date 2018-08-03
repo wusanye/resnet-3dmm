@@ -21,6 +21,9 @@ class ResNet(object):
     def ResNet34(self):
         self.build_net("BasicBlock", [3, 4, 6, 3])
 
+    def ResNet50(self):
+        self.build_net("Bottleneck", [3, 4, 6, 3])
+
     def ResNet18(self):
         self.build_net("BasicBlock", [2, 2, 2, 2])
 
@@ -90,7 +93,7 @@ class ResNet(object):
         implemented with pre-activation ResNet.
         """
         filter_shape = [1, 1, x.get_shape().as_list()[-1], filter_num]
-        stride_shape = init_strides.as_list()
+        stride_shape = list(init_strides)
         w = self._get_weight_variable(filter_shape)
 
         if is_first_block_of_first_layer:

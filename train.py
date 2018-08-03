@@ -25,15 +25,19 @@ test_list = "test.list"
 label_file = "/tmp/label.txt"
 
 # Learning parameters
-learning_rate = 0.0001
-epochs = 4
-batch_size = 16
+learning_rate = 0.01
+lr_annealing = 0.5
+lr_epochs = 10
+# 10 epochs for seeing the effect on the whole
+epochs = 128
+# 256 for first try, try x2 or x0.5
+batch_size = 32
 
 # Network parameters
 output_dim = 185
 
 # Display frequency
-display_step = 2
+display_step = 20
 
 filewriter_path = "tmp/tensorboard"
 
@@ -59,16 +63,16 @@ x = tf.placeholder(tf.float32, [batch_size, 224, 224, 3])
 y = tf.placeholder(tf.float32, [batch_size, output_dim])
 
 # Initialize model
-ResNet34 = ResNet(x, output_dim)
-ResNet34.ResNet34()
+ResNet = ResNet(x, output_dim)
+ResNet.ResNet50()
 
-predicts = ResNet34.predicts
+predicts = ResNet.predicts
 
 var_list = [v for v in tf.trainable_variables()]
 
 with tf.name_scope("Asymmetric_Euclidean_Loss"):
-    lambda1 = tf.constant(1, dtype=tf.float32)
-    lambda2 = tf.constant(3, dtype=tf.float32)
+    lambda1 = tf.constant(1/4, dtype=tf.float32)
+    lambda2 = tf.constant(3/4, dtype=tf.float32)
 
     gamma_plus = tf.abs(y)
     gamma_pplus = tf.sign(y) * predicts
@@ -102,6 +106,8 @@ optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 train_batches_per_epoch = int(np.floor(train_data.data_size / batch_size))
 # val_batches_per_epoch = int(np.floor(val_data.data_size / batch_size))
 
+f = open("loss.dat", 'w+')
+
 with tf.Session() as sess:
 
     # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
@@ -123,20 +129,21 @@ with tf.Session() as sess:
         for batch in range(train_batches_per_epoch):
 
             img_batch, label_batch = sess.run(next_batch)
-            print(img_batch.shape)
-            print(img_batch.max())
-            print(np.sum(img_batch))
             
             _, loss_value, pred = sess.run([optimizer, loss, predicts], feed_dict={x: img_batch, y: label_batch})
 
-            print("{}, Loss: {}".format(datetime.now(), loss_value))
-            # print(pred - label_batch)
-            '''
+            relative_loss = loss_value / np.mean(np.square(np.linalg.norm(label_batch, axis=1)))
+
             if batch % display_step == 0:
-                print("{}, Loss: {}".format(datetime.now(), loss_value))
-                s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch})
-                writer.add_summary(s, epoch * train_batches_per_epoch + batch)
-            '''
+                print("{}, Loss: {}, Relative loss: {}".format(datetime.now(), loss_value, relative_loss))
+                f.write("{}, Loss: {}, Relative loss: {}".format(datetime.now(), loss_value, relative_loss))
+                # s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch})
+                # writer.add_summary(s, epoch * train_batches_per_epoch + batch)
+
+        # annealing lr every 5 epochs by half
+        if epoch % lr_epochs == 0:
+            learning_rate *= lr_annealing
+
         """
         # Validating here
         print("{} Start validation".format(datetime.now()))
@@ -151,6 +158,8 @@ with tf.Session() as sess:
 
             print("{} Validation Loss = {}".format(datetime.now(), val_loss_value))
         """
+
+f.close()
 
 
 
