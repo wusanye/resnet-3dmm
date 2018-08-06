@@ -10,7 +10,9 @@ import cv2
 import shutil
 import numpy as np
 import tensorflow as tf
-from resnet import ResNet
+# from resnet import ResNet
+from resnet_new import ResNet
+from nn_layers import basic_block
 from utils import DataGenerator, asymmetric_euclidean_loss, read_txt
 from datetime import datetime
 from tensorflow.data import Iterator
@@ -22,16 +24,14 @@ train_list = "./train.list"
 val_list = "val.list"
 test_list = "test.list"
 
-label_file = "/tmp/label.txt"
-
 # Learning parameters
-learning_rate = 0.01
+learning_rate = 0.001
 lr_annealing = 0.5
 lr_epochs = 10
 # 10 epochs for seeing the effect on the whole
-epochs = 128
+epochs = 50
 # 256 for first try, try x2 or x0.5
-batch_size = 32
+batch_size = 128  # 128
 
 # Network parameters
 output_dim = 185
@@ -63,25 +63,17 @@ x = tf.placeholder(tf.float32, [batch_size, 224, 224, 3])
 y = tf.placeholder(tf.float32, [batch_size, output_dim])
 
 # Initialize model
-ResNet = ResNet(x, output_dim)
-ResNet.ResNet50()
+# ResNet = ResNet(x, output_dim)
+# ResNet.ResNet50()
+model = ResNet(x, output_dim, basic_block, [3, 4, 6, 3])
 
-predicts = ResNet.predicts
+predicts = model.predicts
 
 var_list = [v for v in tf.trainable_variables()]
 
 with tf.name_scope("Asymmetric_Euclidean_Loss"):
-    lambda1 = tf.constant(1/4, dtype=tf.float32)
-    lambda2 = tf.constant(3/4, dtype=tf.float32)
+    loss = asymmetric_euclidean_loss(predicts, y)
 
-    gamma_plus = tf.abs(y)
-    gamma_pplus = tf.sign(y) * predicts
-    gamma_max = tf.maximum(gamma_plus, gamma_pplus)
-
-    over_estimate = lambda1 * tf.square(tf.norm(gamma_plus - gamma_max, axis=1))
-    under_estimate = lambda2 * tf.square(tf.norm(gamma_pplus - gamma_max, axis=1))
-
-    loss = tf.reduce_mean(over_estimate + under_estimate)
 '''
 with tf.name_scope("train"):
     gradients = tf.gradients(loss, var_list)
@@ -100,6 +92,7 @@ tf.summary.scalar('asymmetric_euclidean_loss', loss)
 
 merged_summary = tf.summary.merge_all()
 '''
+
 writer = tf.summary.FileWriter(filewriter_path)
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 

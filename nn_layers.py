@@ -8,14 +8,90 @@ import tensorflow as tf
 from tensorflow.python.training.moving_averages import assign_moving_average
 
 
+def residual_block(block_func, x, output_depth, stride, is_first_miniblock=False):
+
+    return block_func(x, output_depth, stride, is_first_miniblock)
+
+
+def basic_block(x, output_depth, stride, is_first_miniblock=False):
+
+    input_depth = x.get_shape().as_list()[-1]
+
+    with tf.variable_scope('convA'):
+
+        if is_first_miniblock:
+            w = create_variable(name='conv_w', shape=[3, 3, input_depth, output_depth])
+            conv1 = tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME')
+        else:
+            conv1 = bn_relu_conv(x, [3, 3, input_depth, output_depth], stride)
+
+    with tf.variable_scope("convB"):
+
+        conv2 = bn_relu_conv(conv1, [3, 3, output_depth, output_depth], 1)
+
+    block_out = shortcut(x, conv2)
+
+    return block_out
+
+
+def bottleneck(x, output_depth, stride, is_first_miniblock=False):
+
+    input_depth = x.get_shape().as_list()[-1]
+
+    with tf.variable_scope('convA'):
+
+        if is_first_miniblock:
+            w = create_variable(name='conv_w', shape=[1, 1, input_depth, output_depth])
+            conv1 = tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME')
+        else:
+            conv1 = bn_relu_conv(x, [1, 1, input_depth, output_depth], stride)
+
+    with tf.variable_scope("convB"):
+
+        conv2 = bn_relu_conv(conv1, [3, 3, output_depth, output_depth], 1)
+
+    with tf.variable_scope("convC"):
+
+        conv3 = bn_relu_conv(conv2, [1, 1, output_depth*4, output_depth], 1)
+
+    conv_block_out = shortcut(x, conv3)
+
+    return conv_block_out
+
+
+def shortcut(x, res):
+
+    input_dim = x.get_shape().as_list()
+    res_dim = res.get_shape().as_list()
+
+    stride_h = int(round(input_dim[1] / res_dim[1]))
+    stride_w = int(round(input_dim[2] / res_dim[2]))
+
+    increase_dim = (input_dim[3] == res_dim[3])
+
+    skip_connection = x
+
+    if stride_h > 1 or stride_w > 1 or increase_dim:
+
+        filter_shape = [1, 1, input_dim[3], res_dim[3]]
+
+        w = create_variable(name='shortcut_w', shape=filter_shape)
+
+        skip_connection = tf.nn.conv2d(x, w, strides=[1, stride_h, stride_w, 1], padding='VALID')
+
+    final_out = skip_connection + res
+
+    return final_out
+
+
 def conv_bn_relu(x, filter_shape, stride):
 
-    w = create_variable(name='conv', shape=filter_shape)
+    w = create_variable(name='conv_w', shape=filter_shape)
 
     # convolution, no need for bias due to BN'mean calc
     conv_out = tf.nn.conv2d(x, w, strides=[1, stride, stride, 1], padding='SAME')
 
-    bn_out = batch_norm(conv_out, train=True)
+    bn_out = batch_norm(conv_out, train=tf.constant(True, dtype=tf.bool))
 
     activation = tf.nn.relu(bn_out)
 
@@ -24,11 +100,11 @@ def conv_bn_relu(x, filter_shape, stride):
 
 def bn_relu_conv(x, filter_shape, stride):
 
-    bn_out = batch_norm(x, train=True)
+    bn_out = batch_norm(x, train=tf.constant(True, dtype=tf.bool))
 
     activation = tf.nn.relu(bn_out)
 
-    w = create_variable(name='conv', shape=filter_shape)
+    w = create_variable(name='conv_w', shape=filter_shape)
 
     # convolution, no need for bias due to BN'mean calc
     conv_out = tf.nn.conv2d(activation, w, strides=[1, stride, stride, 1], padding='SAME')
@@ -88,32 +164,34 @@ def dense(x, num_outputs, use_relu, name='fc', verbose=True):
 
 
 def flatten(x):
+
     nums = np.prod(x.get_shape().as_list()[1:])  # C*W*H
+
     return tf.reshape(x, [-1, nums])  # samples * (C*W*H)
 
 
 def batch_norm(x, train, eps=1e-05, decay=0.9, affine=True, name='bn'):
 
-    depth = tf.shape(x)[-1]
+    depth = x.get_shape().as_list()[-1]
 
     moving_mean = create_variable(name + '_mu', shape=[depth], initializer=tf.zeros_initializer(), trainable=False)
     moving_variance = create_variable(name + '_sigma', shape=[depth], initializer=tf.ones_initializer(), trainable=False)
 
     def mean_var_with_update():
-        mean, variance = tf.nn.moments(x, tf.shape(x)[:-1], name='moments')
+        mean, variance = tf.nn.moments(x, axes=[0, 1, 2], name='moments')
         with tf.control_dependencies([assign_moving_average(moving_mean, mean, decay),
                                       assign_moving_average(moving_variance, variance, decay)]):
             return tf.identity(mean), tf.identity(variance)
 
-    mean, variance = tf.cond(train, mean_var_with_update(), lambda: (moving_mean, moving_variance))
+    mean, variance = tf.cond(train, mean_var_with_update, lambda: (moving_mean, moving_variance))
 
     if affine:
         beta = tf.get_variable(name + '_beta', shape=[depth], initializer=tf.zeros_initializer())
         gamma = tf.get_variable(name + '_gamma', shape=[depth], initializer=tf.ones_initializer())
 
-        x = tf.nn.batch_norm_with_global_normalization(x, mean, variance, beta, gamma, eps)
+        x = tf.nn.batch_normalization(x, mean, variance, beta, gamma, eps)
     else:
-        x = tf.nn.batch_norm_with_global_normalization(x, mean, variance, None, None, eps)
+        x = tf.nn.batch_normalization(x, mean, variance, None, None, eps)
 
     return x
 

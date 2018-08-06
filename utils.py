@@ -150,13 +150,16 @@ def asymmetric_euclidean_loss(predicts, truth):
     Returns:
         Asymmetric Euclidean Loss over the batch
     """
-    lambda1 = tf.constant(1, dtype=tf.float32)
-    lambda2 = tf.constant(3, dtype=tf.float32)
+    lambda1 = tf.constant(1/4, dtype=tf.float32)
+    lambda2 = tf.constant(3/4, dtype=tf.float32)
+
     gamma_plus = tf.abs(truth)
     gamma_pplus = tf.sign(truth) * predicts
     gamma_max = tf.maximum(gamma_plus, gamma_pplus)
+
     over_estimate = lambda1 * tf.square(tf.norm(gamma_plus - gamma_max, axis=1))
     under_estimate = lambda2 * tf.square(tf.norm(gamma_pplus - gamma_max, axis=1))
+
     return tf.reduce_mean(over_estimate + under_estimate)
 
 
