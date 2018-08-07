@@ -20,7 +20,7 @@ class DataGenerator(object):
     """
     Data set generator, with tensorflow Dataset and iterator
     """
-    def __init__(self, txt_file, mode, batch_size, shuffle=True,
+    def __init__(self, txt_file, output_dim, mode, batch_size, shuffle=True,
                  buffer_size=10000):
         """Create a new ImageDataGenerator.
         Receives a path string to a text file, which consists of many lines,
@@ -42,7 +42,7 @@ class DataGenerator(object):
             ValueError: If an invalid mode is passed.
         """
         self.txt_file = txt_file
-        # # self.num_classes = num_classes
+        self.output_dim = output_dim
 
         # retrieve the data from the text file
         self._read_txt_file()
@@ -57,9 +57,6 @@ class DataGenerator(object):
         # convert lists to TF tensor
         self.img_paths = convert_to_tensor(self.img_paths, dtype=dtypes.string)
         self.labels = convert_to_tensor(self.labels, dtype=dtypes.float32)
-
-        # norm = tf.constant(1000., dtype=tf.float32)
-        # self.labels = tf.divide(self.labels, norm)
 
         # slice first dimension of tensor to create dataset
         data = Dataset.from_tensor_slices((self.img_paths, self.labels))
@@ -107,34 +104,42 @@ class DataGenerator(object):
             self.img_paths.append(img_paths[i])
             self.labels.append(labels[i])
 
-    @staticmethod
-    def _parse_function_train(img_file, label):
+    def _parse_function_train(self, img_file, label):
         """Input parser for samples of the training set."""
-        # load label corresponding to image
-        # # one_hot = tf.read_file(label)
+        # label pre-process
+        f = np.load('bfm09/std_shape_exp.npz')
+        shape_std, exp_std = f['shape_ev'], f['exp_ev']
+        rest_std = np.array([1, 1, 1, 200., 200., 1], dtype=np.float32)
+        label_con = np.concatenate((shape_std, exp_std, rest_std))
+        label_con = convert_to_tensor(label_con, dtype=tf.float32)
+        label = tf.divide(label, label_con)
 
         # load and pre-process the image
         img_string = tf.read_file(img_file)
         img_decoded = tf.image.decode_jpeg(img_string, channels=3)
-        img_resized = tf.image.resize_images(img_decoded, [224, 224])
-        img_centered = tf.divide(tf.cast(img_resized, tf.float32), 255.)
+        # img_resized = tf.image.resize_images(img_decoded, [224, 224])
+        img_centered = tf.divide(tf.cast(img_decoded, tf.float32), 255.)
 
         # RGB -> BGR
         # # img_bgr = img_centered[:, :, ::-1]
 
         return img_centered, label
 
-    @staticmethod
-    def _parse_function_inference(filename, label):
+    def _parse_function_inference(self, filename, label):
         """Input parser for samples of the validation/test set."""
-        # convert label number into one-hot-encoding
-        # # one_hot = tf.one_hot(label, self.num_classes)
+        # label pre-process
+        f = np.load('bfm09/std_shape_exp.npz')
+        shape_std, exp_std = f['shape_ev'], f['exp_ev']
+        rest_std = np.array([1, 1, 1, 200., 200., 1], dtype=np.float32)
+        label_con = np.concatenate((shape_std, exp_std, rest_std))
+        label_con = convert_to_tensor(label_con, dtype=tf.float32)
+        label = tf.divide(label, label_con)
 
         # load and pre-process the image
         img_string = tf.read_file(filename)
         img_decoded = tf.image.decode_png(img_string, channels=3)
-        img_resized = tf.image.resize_images(img_decoded, [227, 227])
-        img_centered = tf.divide(tf.cast(img_resized, tf.float32), 255.)
+        # img_resized = tf.image.resize_images(img_decoded, [227, 227])
+        img_centered = tf.divide(tf.cast(img_decoded, tf.float32), 255.)
 
         # RGB -> BGR
         # # img_bgr = img_centered[:, :, ::-1]
@@ -242,6 +247,30 @@ def normalize_data(data, labels, size):
 def get_batch(data, labels, batch_size, batch_no):
     return data[batch_size*(batch_no - 1): batch_size*batch_no: 1, :], \
            labels[batch_size*(batch_no - 1): batch_size*batch_no: 1, :]
+
+
+def split_list(txt_file):
+
+    with open(txt_file, 'r') as f:
+        lines = f.readlines()
+        img_paths = [line for line in lines]
+
+    permutation = np.random.permutation(len(img_paths))
+
+    img_list = [img_paths[i] for i in permutation]
+
+    train_list = img_list[:64000]
+    val_list = img_list[64000:]
+
+    with open('training.list', 'w+') as f1:
+        for line in train_list:
+            f1.write(line)
+
+    with open('validating.list', 'w+') as f2:
+        for line in val_list:
+            f2.write(line)
+
+
 
 
 
