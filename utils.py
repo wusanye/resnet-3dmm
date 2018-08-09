@@ -20,7 +20,7 @@ class DataGenerator(object):
     """
     Data set generator, with tensorflow Dataset and iterator
     """
-    def __init__(self, txt_file, output_dim, mode, batch_size, shuffle=True,
+    def __init__(self, txt_file, image_size, output_dim, mode, batch_size, shuffle=True,
                  buffer_size=10000):
         """Create a new ImageDataGenerator.
         Receives a path string to a text file, which consists of many lines,
@@ -43,6 +43,7 @@ class DataGenerator(object):
         """
         self.txt_file = txt_file
         self.output_dim = output_dim
+        self.image_size = image_size
 
         # retrieve the data from the text file
         self._read_txt_file()
@@ -109,7 +110,7 @@ class DataGenerator(object):
         # label pre-process
         f = np.load('bfm09/std_shape_exp.npz')
         shape_std, exp_std = f['shape_ev'], f['exp_ev']
-        rest_std = np.array([1, 1, 1, 200., 200., 1], dtype=np.float32)
+        rest_std = np.array([1, 1, 1, self.image_size, self.image_size, 1], dtype=np.float32)
         label_con = np.concatenate((shape_std, exp_std, rest_std))
         label_con = convert_to_tensor(label_con, dtype=tf.float32)
         label = tf.divide(label, label_con)
@@ -130,7 +131,7 @@ class DataGenerator(object):
         # label pre-process
         f = np.load('bfm09/std_shape_exp.npz')
         shape_std, exp_std = f['shape_ev'], f['exp_ev']
-        rest_std = np.array([1, 1, 1, 200., 200., 1], dtype=np.float32)
+        rest_std = np.array([1, 1, 1, self.image_size, self.image_size, 1], dtype=np.float32)
         label_con = np.concatenate((shape_std, exp_std, rest_std))
         label_con = convert_to_tensor(label_con, dtype=tf.float32)
         label = tf.divide(label, label_con)
@@ -162,8 +163,11 @@ def asymmetric_euclidean_loss(predicts, truth):
     gamma_pplus = tf.sign(truth) * predicts
     gamma_max = tf.maximum(gamma_plus, gamma_pplus)
 
-    over_estimate = lambda1 * tf.square(tf.norm(gamma_plus - gamma_max, axis=1))
-    under_estimate = lambda2 * tf.square(tf.norm(gamma_pplus - gamma_max, axis=1))
+    # over_estimate = lambda1 * tf.square(tf.norm(gamma_plus - gamma_max, axis=1))
+    # under_estimate = lambda2 * tf.square(tf.norm(gamma_pplus - gamma_max, axis=1))
+
+    over_estimate = lambda1 * tf.reduce_sum(tf.square(gamma_plus - gamma_max), axis=1)
+    under_estimate = lambda2 * tf.reduce_sum(tf.square(gamma_pplus - gamma_max), axis=1)
 
     return tf.reduce_mean(over_estimate + under_estimate)
 

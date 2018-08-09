@@ -143,7 +143,7 @@ def max_pool(x, ksize, stride, padding):
     return out
 
 
-def dense(x, num_outputs, use_relu, name='fc', verbose=True):
+def dense(x, num_outputs, use_relu, name='fc', verbose=False):
 
     num_inputs = x.get_shape().as_list()[-1]
 
@@ -151,10 +151,10 @@ def dense(x, num_outputs, use_relu, name='fc', verbose=True):
 
     b = create_variable(name + '_b', shape=[num_outputs], initializer=tf.constant_initializer(0.05))
 
-    act = tf.matmul(x, w) + b
+    act = tf.nn.xw_plus_b(x, w, b, name=name + '_fc')
 
     if use_relu:
-        act = tf.nn.relu(act)
+        act = tf.nn.relu(act, name=name + '_relu')
 
     if verbose:
         print("> %s layer: num_in=%d, num_out=%d, output_shape=%s"
@@ -170,7 +170,7 @@ def flatten(x):
     return tf.reshape(x, [-1, nums])  # samples * (C*W*H)
 
 
-def batch_norm(x, train, eps=1e-05, decay=0.9, affine=True, name='bn'):
+def batch_norm(x, train, eps=1e-3, decay=0.9, affine=True, name='bn'):
 
     depth = x.get_shape().as_list()[-1]
 
