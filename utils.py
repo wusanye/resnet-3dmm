@@ -65,10 +65,8 @@ class DataGenerator(object):
         # distinguish between train/infer. when calling the parsing functions
         if mode == 'training':
             data = data.map(self._parse_function_train, num_parallel_calls=8)
-
         elif mode == 'inference':
             data = data.map(self._parse_function_inference, num_parallel_calls=8)
-
         else:
             raise ValueError("Invalid mode '%s'." % mode)
 
@@ -106,49 +104,36 @@ class DataGenerator(object):
             self.labels.append(labels[i])
 
     def _parse_function_train(self, img_file, label):
-        """Input parser for samples of the training set."""
+        """input parser for samples of the training set."""
+
+        img_normed, label_normed = self.parse_data(img_file, label, self.image_size)
+
+        return img_normed, label_normed
+
+    def _parse_function_inference(self, img_file, label):
+        """input parser for samples of the validation/test set."""
+
+        img_normed, label_normed = self.parse_data(img_file, label, self.image_size)
+
+        return img_normed, label_normed
+
+    @staticmethod
+    def parse_data(image, label, image_size):
         # label pre-process
-        f = np.load('bfm09/std_shape_exp.npz')
-        shape_std, exp_std = f['shape_ev'], f['exp_ev']
-        rest_std = np.array([1, 1, 1, self.image_size, self.image_size, 1], dtype=np.float32)
-        label_con = np.concatenate((shape_std, exp_std, rest_std))
+        label_con = label_norm(image_size)
         label_con = convert_to_tensor(label_con, dtype=tf.float32)
-        label = tf.divide(label, label_con)
+        label_normed = tf.divide(label, label_con)
 
         # load and pre-process the image
-        img_string = tf.read_file(img_file)
+        img_string = tf.read_file(image)
         img_decoded = tf.image.decode_jpeg(img_string, channels=3)
         # img_resized = tf.image.resize_images(img_decoded, [224, 224])
-        img_centered = tf.divide(tf.cast(img_decoded, tf.float32), 255.)
+        img_normed = tf.divide(tf.cast(img_decoded, tf.float32), 255.)
 
-        # RGB -> BGR
-        # # img_bgr = img_centered[:, :, ::-1]
-
-        return img_centered, label
-
-    def _parse_function_inference(self, filename, label):
-        """Input parser for samples of the validation/test set."""
-        # label pre-process
-        f = np.load('bfm09/std_shape_exp.npz')
-        shape_std, exp_std = f['shape_ev'], f['exp_ev']
-        rest_std = np.array([1, 1, 1, self.image_size, self.image_size, 1], dtype=np.float32)
-        label_con = np.concatenate((shape_std, exp_std, rest_std))
-        label_con = convert_to_tensor(label_con, dtype=tf.float32)
-        label = tf.divide(label, label_con)
-
-        # load and pre-process the image
-        img_string = tf.read_file(filename)
-        img_decoded = tf.image.decode_png(img_string, channels=3)
-        # img_resized = tf.image.resize_images(img_decoded, [227, 227])
-        img_centered = tf.divide(tf.cast(img_decoded, tf.float32), 255.)
-
-        # RGB -> BGR
-        # # img_bgr = img_centered[:, :, ::-1]
-
-        return img_centered, label
+        return img_normed, label_normed
 
 
-def asymmetric_euclidean_loss(predicts, truth):
+def asym_l2_loss(predicts, truth):
     """Implementation of Asymmetric Euclidean Loss
     Args:
         predicts: predicted output, dim (batch, output_len)
@@ -170,6 +155,16 @@ def asymmetric_euclidean_loss(predicts, truth):
     under_estimate = lambda2 * tf.reduce_sum(tf.square(gamma_pplus - gamma_max), axis=1)
 
     return tf.reduce_mean(over_estimate + under_estimate)
+
+
+def label_norm(image_size):
+
+    f = np.load('bfm09/std_shape_exp.npz')
+    shape_std, exp_std = f['shape_ev'], f['exp_ev']
+    rest_std = np.array([1, 1, 1, image_size, image_size, 1], dtype=np.float32)
+    label_con = np.concatenate((shape_std, exp_std, rest_std))
+
+    return label_con
 
 
 def read_txt(file_name):
@@ -273,8 +268,6 @@ def split_list(txt_file):
     with open('validating.list', 'w+') as f2:
         for line in val_list:
             f2.write(line)
-
-
 
 
 

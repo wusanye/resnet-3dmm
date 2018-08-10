@@ -17,33 +17,30 @@ class ResNet(object):
         self.output_dim = output_dim
         self.block = block
         self.block_num_list = block_num_list
-        self.images = tf.placeholder(tf.float32, [None, *image_size], name='data_feed')
-        self.predicts = ResNet.forward(self.images, block, output_dim, block_num_list)
+        self.training = tf.placeholder(tf.bool, name='training')
+        self.images = tf.placeholder(tf.float32, [None, *image_size], name='input_data')
+        self.predicts = ResNet.forward(self.images, block, output_dim, block_num_list, self.training)
 
     @staticmethod
-    def forward(x, block, output_dim, block_num_list):
-
-        layers = []
+    def forward(x, block, output_dim, block_num_list, training):
 
         with tf.variable_scope('conv0'):
-            conv0 = conv_bn_relu(x, [7, 7, 3, 64], 2)
-            pool0 = max_pool(conv0, ksize=3, stride=2, padding='SAME')
-            layers.append(pool0)
+            x = conv_bn_relu(x, [7, 7, 3, 64], 2)
+            x = max_pool(x, ksize=3, stride=2, padding='SAME')
 
-        layers.append(make_conv_block(block, 1, layers[-1], 64, block_num_list[0], stride=1))
+        x = make_conv_block(block, 1, x, 64,  block_num_list[0], 1, training)
 
-        layers.append(make_conv_block(block, 2, layers[-1], 128, block_num_list[1], stride=2))
+        x = make_conv_block(block, 2, x, 128, block_num_list[1], 2, training)
 
-        layers.append(make_conv_block(block, 3, layers[-1], 256, block_num_list[2], stride=2))
+        x = make_conv_block(block, 3, x, 256, block_num_list[2], 2, training)
 
-        layers.append(make_conv_block(block, 4, layers[-1], 512, block_num_list[3], stride=2))
+        x = make_conv_block(block, 4, x, 512, block_num_list[3], 2, training)
 
-        with tf.variable_scope('avg_pool_dense'):
-            avg_pool = tf.reduce_mean(layers[-1], [1, 2])
-            fc = dense(avg_pool, output_dim, use_relu=False, name='output')
-            layers.append(fc)
+        with tf.variable_scope('dense'):
+            x = tf.reduce_mean(x, [1, 2])
+            x = dense(x, output_dim, use_relu=False, name='output')
 
-        return layers[-1]
+        return x
 
     @staticmethod
     def inference(model_path, input_file):
@@ -57,13 +54,14 @@ class ResNet(object):
 
         graph = tf.get_default_graph()
         # with tf.get_default_graph() as graph:
-        x = graph.get_tensor_by_name("data_feed:0")
-        out = graph.get_tensor_by_name("output_fc:0")
+        x = graph.get_tensor_by_name("input_data:0")
+        out = graph.get_tensor_by_name("dense/output_logits:0")
+        training = graph.get_tensor_by_name("training:0")
 
         with tf.Session() as sess:
             saver.restore(sess, model_path)
 
-            preds = sess.run(out, feed_dict={x: image_batch})
+            preds = sess.run(out, feed_dict={x: image_batch, training: 0})
 
         return preds
 
@@ -80,24 +78,24 @@ class ResNet(object):
         with tf.Session() as sess:
             saver.restore(sess, model_path)
 
-            predicts = sess.run(self.predicts, feed_dict={self.images: image_batch})
+            predicts = sess.run(self.predicts, feed_dict={self.images: image_batch, self.training: 0})
 
         return predicts
 
 
-def make_conv_block(block, block_id, x, output_depth, num_residual_blocks, stride):
+def make_conv_block(block, block_id, x, out_depth, num_res_blks, stride, training):
 
-    strides = [stride] + [1]*(num_residual_blocks - 1)
+    strides = [stride] + [1]*(num_res_blks - 1)
 
     first = (stride == 1)
 
     layers = [x]
 
-    for no in range(num_residual_blocks):
+    for no in range(num_res_blks):
 
         with tf.variable_scope('conv%d_%d' % (block_id, no)):
 
-            out = residual_block(block, layers[-1], output_depth, strides[no], is_first_miniblock=first)
+            out = residual_block(block, layers[-1], out_depth, strides[no], first, training)
 
             layers.append(out)
 

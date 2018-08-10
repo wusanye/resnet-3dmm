@@ -6,14 +6,12 @@
 """THIS IS THE IMPLEMENTATION OF MAIN TRAINING PROCESS"""
 
 import os
-# import cv2
 import shutil
 import numpy as np
 import tensorflow as tf
-# from resnet import ResNet
 from resnet_new import ResNet
 from nn_layers import basic_block
-from utils import DataGenerator, asymmetric_euclidean_loss
+from utils import DataGenerator, asym_l2_loss
 from datetime import datetime
 from tensorflow.data import Iterator
 # from tensorflow.python import  debug as tf_debug
@@ -21,8 +19,8 @@ from tensorflow.data import Iterator
 """Configuration Part"""
 # Path to the text files for the training/val/test set
 image_size = [450, 450, 3]
-train_list = "train.list"
-val_list = "dev.list"
+train_list = "./list/train.list"
+val_list = "./list/dev.list"
 test_list = "test.list"
 
 # Learning parameters
@@ -32,13 +30,13 @@ lr_epochs = 4
 # 10 epochs for seeing the effect on the whole
 epochs = 80
 # 256 for first try, try x2 or x0.5
-batch_size = 4  # 128
+batch_size = 32  # 128
 
 # Network parameters
 output_dim = 185
 
 # Display frequency (print/#batch)
-display_step = 2
+display_step = 500
 
 writer_path = "visualization"
 checkpoint_path = "checkpoints"
@@ -68,10 +66,10 @@ y = tf.placeholder(tf.float32, [None, output_dim], name='data_label')
 model = ResNet(image_size, output_dim, basic_block, [3, 4, 6, 3])
 
 predicts = model.predicts
-x = model.images
+x, training = model.images, model.training
 
-with tf.name_scope("Asymmetric_Euclidean_Loss"):
-    loss = asymmetric_euclidean_loss(predicts, y)
+with tf.name_scope("Asymmetric_L2_Loss"):
+    loss = asym_l2_loss(predicts, y)
 
 var_list = [v for v in tf.trainable_variables()]
 
@@ -130,7 +128,7 @@ with open("loss.dat", 'w+') as f:
 
                 img_batch, label_batch = sess.run(next_batch)
 
-                _, loss_value = sess.run([train_op, loss], feed_dict={x: img_batch, y: label_batch})
+                _, loss_value = sess.run([train_op, loss], feed_dict={x: img_batch, y: label_batch, training: True})
 
                 rel_loss = loss_value / np.mean(np.square(np.linalg.norm(label_batch, axis=1)))
 
@@ -140,7 +138,7 @@ with open("loss.dat", 'w+') as f:
                     f.write("{}, Epoch: {}, Loss: {:.8f}, Rel loss: {:.9f}\n"
                             .format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), epoch+1, loss_value, rel_loss))
 
-                    s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch})
+                    s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch, training: False})
                     train_writer.add_summary(s, epoch * train_batches_per_epoch + batch)
 
             # # annealing lr every 5 epochs by half
@@ -157,15 +155,15 @@ with open("loss.dat", 'w+') as f:
 
                 img_batch, label_batch = sess.run(next_batch)
 
-                val_loss_value = sess.run(loss, feed_dict={x: img_batch, y: label_batch})
+                loss_value = sess.run(loss, feed_dict={x: img_batch, y: label_batch, training: False})
 
-                rel_loss = val_loss_value / np.mean(np.square(np.linalg.norm(label_batch, axis=1)))
+                rel_loss = loss_value / np.mean(np.square(np.linalg.norm(label_batch, axis=1)))
 
                 if _ % display_step == 0:
                     print("{}, Epoch: {}, Val Loss: {:.8f}, Rel loss: {:.9f}"
-                          .format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), epoch+1, val_loss_value, rel_loss))
+                          .format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), epoch+1, loss_value, rel_loss))
 
-                    s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch})
+                    s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch, training: False})
                     dev_writer.add_summary(s, epoch * train_batches_per_epoch + _)
 
             # # checkpoint save
