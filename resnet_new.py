@@ -95,7 +95,7 @@ def make_conv_block(block, block_id, x, out_depth, num_res_blks, stride, trainin
 
         with tf.variable_scope('conv%d_%d' % (block_id, no)):
 
-            out = residual_block(block, layers[-1], out_depth, strides[no], first, training)
+            out = residual_block(block, layers[-1], out_depth, strides[no], (first and no == 0), training)
 
             layers.append(out)
 

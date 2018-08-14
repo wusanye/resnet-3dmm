@@ -127,10 +127,30 @@ class DataGenerator(object):
         # load and pre-process the image
         img_string = tf.read_file(image)
         img_decoded = tf.image.decode_jpeg(img_string, channels=3)
-        # img_resized = tf.image.resize_images(img_decoded, [224, 224])
-        img_normed = tf.divide(tf.cast(img_decoded, tf.float32), 255.)
+        img_resized = tf.image.resize_images(img_decoded, [224, 224])
+        img_normed = tf.divide(tf.cast(img_resized, tf.float32), 255.)
 
         return img_normed, label_normed
+
+
+def label_norm(image_size):
+
+    f = np.load('bfm09/std_shape_exp.npz')
+    shape_std, exp_std = f['shape_ev'], f['exp_ev']
+    rest_std = np.array([1, 1, 1, image_size, image_size, image_size/224.], dtype=np.float32)
+    label_con = np.concatenate((shape_std, exp_std, rest_std))
+
+    return label_con
+
+
+def read_txt(file_name):
+    with open(file_name, 'r') as f:
+        lines = f.readlines()
+    num_list = []
+    for line in lines:
+        tmp = list(map(float, line.strip('\n').strip().split(' ')))
+        num_list += tmp
+    return num_list
 
 
 def asym_l2_loss(predicts, truth):
@@ -157,117 +177,33 @@ def asym_l2_loss(predicts, truth):
     return tf.reduce_mean(over_estimate + under_estimate)
 
 
-def label_norm(image_size):
+def optimize_loss(train_optimizer, lr_rate, predicts, truths, summary=True):
 
-    f = np.load('bfm09/std_shape_exp.npz')
-    shape_std, exp_std = f['shape_ev'], f['exp_ev']
-    rest_std = np.array([1, 1, 1, image_size, image_size, 1], dtype=np.float32)
-    label_con = np.concatenate((shape_std, exp_std, rest_std))
+    with tf.name_scope("Asymmetric_L2_Loss"):
+        loss = asym_l2_loss(predicts, truths)
+        reg_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        loss += tf.add_n(reg_loss)
 
-    return label_con
+    var_list = [v for v in tf.trainable_variables()]
 
+    # # optimizer.minimize
+    with tf.name_scope("train"):
+        optimizer = train_optimizer(learning_rate=lr_rate)
+        grads_and_vars = optimizer.compute_gradients(loss, var_list)
+        train_op = optimizer.apply_gradients(grads_and_vars=grads_and_vars)
+        update_op = tf.get_collection(tf.GraphKeys.UPDATE_OPS)  # batch norm update
 
-def read_txt(file_name):
-    with open(file_name, 'r') as f:
-        lines = f.readlines()
-    num_list = []
-    for line in lines:
-        tmp = list(map(float, line.strip('\n').strip().split(' ')))
-        num_list += tmp
-    return num_list
+    if summary:
+        # # statistic summary
+        for var in var_list:
+            tf.summary.histogram(var.name, var)
 
+        for gradient, var in grads_and_vars:
+            tf.summary.histogram(var.name + '/gradient', gradient)
 
-def unpickle(file):
-    with open(file, 'rb') as fo:
-        d = pickle.load(fo, encoding='bytes')
-    return d
+    tf.summary.scalar('loss', loss)
 
-
-def load_data(dataset_dir, class_num):
-    if not os.path.isdir(dataset_dir):
-        print("Error: input data set directory is invalid!")
-
-    train_batches = [os.path.join(dataset_dir, "data_batch_"+str(i)) for i in range(1, 6)]
-
-    xlist, ylist = [], []
-    for batch in train_batches:
-        d = unpickle(batch)
-        xlist.append(d[b"data"])
-        ylist.append(d[b"labels"])
-
-    x_train = np.vstack(xlist)
-    y_train = np.vstack(ylist)
-
-    with open(os.path.join(dataset_dir, "test_batch"), 'rb') as f:
-        d = pickle.load(f, encoding='bytes')
-        x_test, y_test = d[b"data"], d[b"labels"]
-
-    y_train = np.reshape(y_train, (-1))
-    y_test = np.array(y_test).reshape(-1)
-
-    y_train = np.eye(class_num)[y_train]
-    y_test = np.eye(class_num)[y_test]
-
-    # shuffle data set
-    shuffle_idx = np.random.permutation(len(x_train))
-    x_train = x_train[shuffle_idx, :]
-    y_train = y_train[shuffle_idx, :]
-
-    # shuffle data set
-    shuffle_idx = np.random.permutation(len(x_test))
-    x_test = x_test[shuffle_idx, :]
-    y_test = y_test[shuffle_idx, :]
-
-    return x_train, y_train, x_test, y_test
-
-
-def normalize_data(data, labels, size):
-    # mean value in all train data set
-    mu = np.mean(data, axis=0)  # calc on the batch dimension
-    mu = mu.reshape(1, -1)
-
-    # std value in all train data set
-    sigma = np.std(data, axis=0)
-    sigma = sigma.reshape(1, -1)
-
-    # normalization
-    data = data - mu
-    data = data / sigma
-
-    # data = data.reshape(-1, depth, height, width)
-    # data = data.transpose([0, 2, 3, 1])
-
-    data = data.astype(np.float32)
-    labels = labels.astype(np.float32)
-
-    return data, labels
-
-
-def get_batch(data, labels, batch_size, batch_no):
-    return data[batch_size*(batch_no - 1): batch_size*batch_no: 1, :], \
-           labels[batch_size*(batch_no - 1): batch_size*batch_no: 1, :]
-
-
-def split_list(txt_file):
-
-    with open(txt_file, 'r') as f:
-        lines = f.readlines()
-        img_paths = [line for line in lines]
-
-    permutation = np.random.permutation(len(img_paths))
-
-    img_list = [img_paths[i] for i in permutation]
-
-    train_list = img_list[:64000]
-    val_list = img_list[64000:]
-
-    with open('training.list', 'w+') as f1:
-        for line in train_list:
-            f1.write(line)
-
-    with open('validating.list', 'w+') as f2:
-        for line in val_list:
-            f2.write(line)
+    return train_op, update_op, loss
 
 
 
