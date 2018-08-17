@@ -8,7 +8,8 @@
 import cv2
 import numpy as np
 import tensorflow as tf
-from nn_layers import residual_block, conv_bn_relu, max_pool, dense
+from nn_layers import conv_bn_relu, max_pool, dense
+from utils import DataGenerator
 
 
 class ResNet(object):
@@ -28,26 +29,30 @@ class ResNet(object):
             x = conv_bn_relu(x, [7, 7, 3, 64], 2)
             x = max_pool(x, ksize=3, stride=2, padding='SAME')
 
-        x = make_conv_block(block, 1, x, 64,  block_num_list[0], 1, training)
+        x = stack(block, 1, x, 64,  block_num_list[0], 1, training)
 
-        x = make_conv_block(block, 2, x, 128, block_num_list[1], 2, training)
+        x = stack(block, 2, x, 128, block_num_list[1], 2, training)
 
-        x = make_conv_block(block, 3, x, 256, block_num_list[2], 2, training)
+        x = stack(block, 3, x, 256, block_num_list[2], 2, training)
 
-        x = make_conv_block(block, 4, x, 512, block_num_list[3], 2, training)
+        x = stack(block, 4, x, 512, block_num_list[3], 2, training)
 
-        with tf.variable_scope('dense'):
+        with tf.variable_scope('dense5'):
             x = tf.reduce_mean(x, [1, 2])
-            x = dense(x, output_dim, use_relu=False, name='output')
+            x = dense(x, output_dim, name='output')
 
         return x
 
     @staticmethod
     def inference(model_path, input_file):
 
-        image = cv2.cvtColor(cv2.imread(input_file, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+        # image = cv2.cvtColor(cv2.imread(input_file, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
 
-        image_batch = np.expand_dims(image, axis=0)
+        # image_batch = np.expand_dims(image, axis=0)
+
+        image = DataGenerator.parse_data(input_file)
+
+        image_batch = tf.expand_dims(image, axis=0)
 
         # ckpt = tf.train.get_checkpoint_state(model_path)
         saver = tf.train.import_meta_graph(model_path + '.meta')
@@ -55,11 +60,13 @@ class ResNet(object):
         graph = tf.get_default_graph()
         # with tf.get_default_graph() as graph:
         x = graph.get_tensor_by_name("input_data:0")
-        out = graph.get_tensor_by_name("dense/output_logits:0")
+        out = graph.get_tensor_by_name("dense5/output_logits:0")
         training = graph.get_tensor_by_name("training:0")
 
         with tf.Session() as sess:
             saver.restore(sess, model_path)
+
+            image_batch = sess.run(image_batch)
 
             preds = sess.run(out, feed_dict={x: image_batch, training: 0})
 
@@ -83,7 +90,7 @@ class ResNet(object):
         return predicts
 
 
-def make_conv_block(block, block_id, x, out_depth, num_res_blks, stride, training):
+def stack(block, block_id, x, out_depth, num_res_blks, stride, training):
 
     strides = [stride] + [1]*(num_res_blks - 1)
 
@@ -95,7 +102,7 @@ def make_conv_block(block, block_id, x, out_depth, num_res_blks, stride, trainin
 
         with tf.variable_scope('conv%d_%d' % (block_id, no)):
 
-            out = residual_block(block, layers[-1], out_depth, strides[no], (first and no == 0), training)
+            out = block(layers[-1], out_depth, strides[no], (first and no == 0), training)
 
             layers.append(out)
 

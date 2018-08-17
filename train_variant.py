@@ -9,8 +9,8 @@ import os
 import shutil
 import numpy as np
 import tensorflow as tf
-from resnet_new import ResNet
-from nn_layers import basic_block
+from resnet_variant import ResNet
+from nn_layers import basic_block_variant, bottleneck_variant
 from utils import DataGenerator, asym_l2_loss, optimize_loss, l2_loss
 from datetime import datetime
 from tensorflow.data import Iterator
@@ -57,10 +57,10 @@ val_init_op = iterator.make_initializer(val_data.data)
 y = tf.placeholder(tf.float32, [None, output_dim], name='data_label')
 
 # Initialize model
-model = ResNet([224, 224, 3], output_dim, basic_block, [3, 4, 6, 3])
+model = ResNet([224, 224, 3], output_dim, basic_block_variant, [3, 4, 6, 3])
 
 predicts = model.predicts
-x, training = model.images, model.training
+x, keep_prob = model.images, model.keep_prob
 
 with tf.name_scope("Asymmetric_L2_Loss"):
     l2_loss = asym_l2_loss(predicts, y)
@@ -80,7 +80,6 @@ with tf.name_scope("train"):
     optimizer = tf.train.MomentumOptimizer(learning_rate=lr_rate, momentum=0.9, use_nesterov=True)
     grads_and_vars = optimizer.compute_gradients(loss, var_list)
     train_op = optimizer.apply_gradients(grads_and_vars=grads_and_vars)
-    update_op = tf.get_collection(tf.GraphKeys.UPDATE_OPS)  # batch norm update
 
 # # statistic summary
 for var in var_list:
@@ -125,8 +124,7 @@ with tf.Session() as sess:
 
             img_batch, label_batch = sess.run(next_batch)
 
-            _, _, _, obj_loss = sess.run([train_op, update_op, loss, l2_loss], feed_dict={x: img_batch, y: label_batch,
-                                                                                          training: True})
+            _, _, obj_loss = sess.run([train_op, loss, l2_loss], feed_dict={x: img_batch, y: label_batch, keep_prob: 0.5})
 
             rel_loss = obj_loss / np.mean(np.square(label_batch))
 
@@ -134,7 +132,7 @@ with tf.Session() as sess:
                 print("{}, Epoch: {}, Loss: {:.8f}, Rel loss: {:.9f}"
                       .format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), epoch+1, obj_loss, rel_loss))
 
-                s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch, training: False})
+                s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch, keep_prob: 1.0})
                 train_writer.add_summary(s, epoch * train_batches_per_epoch + batch)
 
         # Validating here
@@ -148,7 +146,7 @@ with tf.Session() as sess:
 
             img_batch, label_batch = sess.run(next_batch)
 
-            total_loss, obj_loss = sess.run([loss, l2_loss], feed_dict={x: img_batch, y: label_batch, training: False})
+            total_loss, obj_loss = sess.run([loss, l2_loss], feed_dict={x: img_batch, y: label_batch, keep_prob: 1.0})
 
             # rel_loss = loss_value / np.mean(np.square(label_batch))
 
@@ -156,7 +154,7 @@ with tf.Session() as sess:
 
             if b % display_step == 0:
 
-                s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch, training: False})
+                s = sess.run(merged_summary, feed_dict={x: img_batch, y: label_batch, keep_prob: 1.0})
                 dev_writer.add_summary(s, epoch * train_batches_per_epoch + b)
 
         average_loss = np.mean(loss_list)

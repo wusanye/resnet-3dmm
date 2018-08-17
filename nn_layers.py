@@ -30,7 +30,7 @@ def basic_block(x, out_depth, stride, first_resblk=False, training=False):
 
     with tf.variable_scope("convB"):
 
-        conv2 = bn_relu_conv(conv1, [3, 3, out_depth, out_depth], 1, training)
+        conv2 = bn_relu_conv(conv1, [3, 3, out_depth, out_depth], 1, training, bias=True)
 
     block_out = shortcut(x, conv2)
 
@@ -55,7 +55,7 @@ def bottleneck(x, out_depth, stride, first_resblk=False, training=False):
 
     with tf.variable_scope("convC"):
 
-        conv3 = bn_relu_conv(conv2, [1, 1, out_depth*4, out_depth], 1, training)
+        conv3 = bn_relu_conv(conv2, [1, 1, out_depth, out_depth*4], 1, training, bias=True)
 
     conv_block_out = shortcut(x, conv3)
 
@@ -76,7 +76,7 @@ def conv_bn_relu(x, filter_shape, stride, training=False):
     return activation
 
 
-def bn_relu_conv(x, filter_shape, stride, training=False):
+def bn_relu_conv(x, filter_shape, stride, training=False, bias=None):
 
     bn_out = batch_norm(x, training=training)
 
@@ -86,6 +86,10 @@ def bn_relu_conv(x, filter_shape, stride, training=False):
 
     # convolution, no need for bias due to BN'mean calc
     conv_out = tf.nn.conv2d(activation, w, strides=[1, stride, stride, 1], padding='SAME')
+
+    if bias:
+        b = create_variable(name='conv_b', shape=filter_shape[-1], initializer=tf.zeros_initializer())
+        conv_out = tf.nn.bias_add(conv_out, b)
 
     return conv_out
 
@@ -130,7 +134,7 @@ def bottleneck_variant(x, out_depth, stride, first_resblk=False):
 
     with tf.variable_scope("convC"):
 
-        conv3 = conv_relu(conv2, [1, 1, out_depth*4, out_depth], 1)
+        conv3 = conv2d(conv2, [1, 1, out_depth, 4*out_depth], 1, padding='SAME')
 
     conv_block_out = shortcut(x, conv3)
 
@@ -148,7 +152,7 @@ def conv_relu(x, filter_shape, stride, padding='SAME'):
     xw_b = tf.nn.bias_add(xw, b)
 
     # leak relu for regression problem
-    activation = tf.nn.leaky_relu(xw_b, alpha=0.2)
+    activation = leaky_relu(xw_b, alpha=0.5)
 
     return activation
 
@@ -164,7 +168,7 @@ def shortcut(x, res):
     stride_h = int(round(input_dim[1] / res_dim[1]))
     stride_w = int(round(input_dim[2] / res_dim[2]))
 
-    increase_dim = (input_dim[3] == res_dim[3])
+    increase_dim = (input_dim[3] != res_dim[3])
 
     skip_connection = x
 
@@ -174,7 +178,11 @@ def shortcut(x, res):
 
         w = create_variable(name='shortcut_w', shape=filter_shape)
 
+        b = create_variable(name='shortcut_b', shape=[filter_shape[-1]], initializer=tf.zeros_initializer())
+
         skip_connection = tf.nn.conv2d(x, w, strides=[1, stride_h, stride_w, 1], padding='VALID')
+
+        skip_connection = tf.nn.bias_add(skip_connection, b)
 
     final_out = skip_connection + res
 
@@ -198,7 +206,7 @@ def conv2d(x, filter_shape, stride, padding='SAME', name='conv', verbose=False):
     return xw_b
 
 
-def dense(x, num_outputs, use_relu, name='fc', verbose=False):
+def dense(x, num_outputs, activation=None, name='fc', verbose=False):
 
     num_inputs = x.get_shape().as_list()[-1]
 
@@ -209,14 +217,21 @@ def dense(x, num_outputs, use_relu, name='fc', verbose=False):
     act = tf.nn.xw_plus_b(x, w, b, name=name + '_logits')
 
     # regression last layer don't use this layer
-    if use_relu:
-        act = tf.nn.relu(act, name=name + '_relu')
+    if activation:
+        act = activation(act)
 
     if verbose:
         print("> %s layer: num_in=%d, num_out=%d, output_shape=%s"
               % (name, num_inputs, num_outputs, str(act.get_shape())))
 
     return act
+
+
+def dropout(x, keep_prob):
+
+    x = tf.nn.dropout(x, keep_prob=keep_prob)
+
+    return x
 
 
 def flatten(x):
@@ -253,13 +268,6 @@ def max_pool(x, ksize, stride, padding):
     return out
 
 
-def lrn(x, radius, alpha, beta, bias=1.0):
-
-    out = tf.nn.local_response_normalization(x, depth_radius=radius, alpha=alpha, beta=beta, bias=bias)
-
-    return out
-
-
 def relu(x):
 
     activation = tf.nn.relu(x)
@@ -267,9 +275,9 @@ def relu(x):
     return activation
 
 
-def leak_relu(x):
+def leaky_relu(x, alpha=0.1):
 
-    activation = tf.nn.leaky_relu(x, alpha=0.2)
+    activation = tf.nn.leaky_relu(x, alpha=alpha)
 
     return activation
 
@@ -299,3 +307,10 @@ def batch_norm_ll(x, training=True, eps=1e-3, decay=0.9, affine=True, name='bn')
         x = tf.nn.batch_normalization(x, mean, variance, None, None, eps)
 
     return x
+
+
+def lrn(x, radius, alpha, beta, bias=1.0):
+
+    out = tf.nn.local_response_normalization(x, depth_radius=radius, alpha=alpha, beta=beta, bias=bias)
+
+    return out

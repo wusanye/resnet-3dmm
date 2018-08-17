@@ -5,9 +5,7 @@
 
 """This is implementation of batch preprocess."""
 
-import os
 import numpy as np
-import _pickle as pickle
 import tensorflow as tf
 from tensorflow.data import Dataset
 from tensorflow.python.framework import dtypes
@@ -106,31 +104,40 @@ class DataGenerator(object):
     def _parse_function_train(self, img_file, label):
         """input parser for samples of the training set."""
 
-        img_normed, label_normed = self.parse_data(img_file, label, self.image_size)
+        img_normed = self.parse_data(img_file)
+
+        label_normed = self.parse_label(label, self.image_size)
 
         return img_normed, label_normed
 
     def _parse_function_inference(self, img_file, label):
         """input parser for samples of the validation/test set."""
 
-        img_normed, label_normed = self.parse_data(img_file, label, self.image_size)
+        img_normed = self.parse_data(img_file)
+
+        label_normed = self.parse_label(label, self.image_size)
 
         return img_normed, label_normed
 
     @staticmethod
-    def parse_data(image, label, image_size):
+    def parse_data(img_file):
+
+        # load and pre-process the image
+        img_string = tf.read_file(img_file)
+        img_decoded = tf.image.decode_jpeg(img_string, channels=3)
+        img_resized = tf.image.resize_images(img_decoded, [224, 224])
+        img_normed = tf.divide(tf.cast(img_resized, tf.float32), 255.)
+
+        return img_normed
+
+    @staticmethod
+    def parse_label(label, image_size):
         # label pre-process
         label_con = label_norm(image_size)
         label_con = convert_to_tensor(label_con, dtype=tf.float32)
         label_normed = tf.divide(label, label_con)
 
-        # load and pre-process the image
-        img_string = tf.read_file(image)
-        img_decoded = tf.image.decode_jpeg(img_string, channels=3)
-        img_resized = tf.image.resize_images(img_decoded, [224, 224])
-        img_normed = tf.divide(tf.cast(img_resized, tf.float32), 255.)
-
-        return img_normed, label_normed
+        return label_normed
 
 
 def label_norm(image_size):
@@ -171,10 +178,17 @@ def asym_l2_loss(predicts, truth):
     # over_estimate = lambda1 * tf.square(tf.norm(gamma_plus - gamma_max, axis=1))
     # under_estimate = lambda2 * tf.square(tf.norm(gamma_pplus - gamma_max, axis=1))
 
-    over_estimate = lambda1 * tf.reduce_sum(tf.square(gamma_plus - gamma_max), axis=1)
-    under_estimate = lambda2 * tf.reduce_sum(tf.square(gamma_pplus - gamma_max), axis=1)
+    over_estimate = lambda1 * tf.reduce_mean(tf.square(gamma_plus - gamma_max), axis=1)
+    under_estimate = lambda2 * tf.reduce_mean(tf.square(gamma_pplus - gamma_max), axis=1)
 
     return tf.reduce_mean(over_estimate + under_estimate)
+
+
+def l2_loss(predicts, truths):
+
+    loss = tf.reduce_mean(tf.square(predicts - truths))
+
+    return loss
 
 
 def optimize_loss(train_optimizer, lr_rate, predicts, truths, summary=True):
