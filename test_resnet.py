@@ -118,11 +118,11 @@ def inference(model_path, list_file, image_size, output_dim, batch_size):
 
             np.savetxt('label.txt', label_batch)
 
-            preds = sess.run(out, feed_dict={x: img_batch})  # , training: False})
+            preds = sess.run(out, feed_dict={x: img_batch})  # training: False})
 
             np.savetxt('pred.txt', preds)
 
-            loss = asym_l2_loss(preds, label_batch)
+            loss = l2_loss(preds, label_batch)
 
             loss_list.append(loss)
 
@@ -138,7 +138,7 @@ if __name__ == '__main__':
     image_size = 450
     output_dim = 185
     batch_size = 1
-    ckpt_path = "./experiment/resnet-variant-displayal2/model_epoch{}.ckpt".format(100)  #
+    ckpt_path = "./experiment/nag-0.001-l2-res34var/model_epoch{}.ckpt".format(120)  #
 
     average_loss = inference(ckpt_path, data_list, image_size, output_dim, batch_size)
 
