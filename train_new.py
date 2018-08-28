@@ -1,4 +1,3 @@
-
 #############################################
 # Copyright (c) 2018-present
 # written by Kai Wu on 2018-07-31
@@ -14,6 +13,9 @@ from resnet_new import ResNet
 from nn_layers import basic_block
 from utils import asym_l2_loss, optimize_loss, l2_loss, load_data_sets, train
 # from tensorflow.python import debug as tf_debug
+
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 
 '''configuration part'''
 # Path to the text files for the training/val/test set
@@ -51,9 +53,9 @@ predicts = model.predicts
 x, training = model.images, model.training
 
 with tf.name_scope("Asymmetric_L2_Loss"):
-    l2_loss = asym_l2_loss(predicts, y)
+    obj_loss = asym_l2_loss(predicts, y)
     reg_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-    loss = l2_loss + tf.add_n(reg_loss)
+    loss = obj_loss + tf.add_n(reg_loss)
 
 var_list = [v for v in tf.trainable_variables()]
 
@@ -78,14 +80,14 @@ for gradient, var in grads_and_vars:
     tf.summary.histogram(var.name + '/gradient', gradient)
 
 tf.summary.scalar('lr', lr_rate)
-tf.summary.scalar('l2 loss', l2_loss)
+tf.summary.scalar('l2 loss', obj_loss)
 tf.summary.scalar('total loss', loss)
 
 saver = tf.train.Saver(max_to_keep=epochs)
 
 feed_dict = OrderedDict.fromkeys([x, y, training])
 
-train(train_op, update_op, loss, feed_dict, data_family, epochs, saver, logdir)
+train(train_op, update_op, [loss, obj_loss], feed_dict, data_family, epochs, saver, logdir)
 
 
 

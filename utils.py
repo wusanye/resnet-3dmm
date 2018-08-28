@@ -211,8 +211,8 @@ def load_data_sets(image_size, output_dim, batch_size, train_list, val_list):
 
     # Place data loading and pre-processing on cpu
     with tf.device('/cpu:0'):
-        train_data = DataGenerator(train_list, image_size[0], output_dim, 'training', batch_size, shuffle=True)
-        val_data = DataGenerator(val_list, image_size[0], output_dim, 'inference', batch_size, shuffle=False)
+        train_data = DataGenerator(train_list, image_size, output_dim, 'training', batch_size, shuffle=True)
+        val_data = DataGenerator(val_list, image_size, output_dim, 'inference', batch_size, shuffle=False)
 
     # Create an reinitializable iterator given the data structure
     iterator = Iterator.from_structure(train_data.data.output_types, train_data.data.output_shapes)
@@ -239,13 +239,15 @@ def train(train_op, update_op, loss, feeds, dataset, epochs, saver, logdir, disp
     train_writer = tf.summary.FileWriter(logdir + '/train')
     dev_writer = tf.summary.FileWriter(logdir + '/dev')
 
-    train_batches = np.ceil(dataset.train.num_examples / dataset.train.batch_size)
-    val_batches = np.ceil(dataset.val.num_examples / dataset.val.bnatch_size)
+    train_batches = int(np.ceil(dataset.train.num_examples / dataset.train.batch_size))
+    val_batches = int(np.ceil(dataset.val.num_examples / dataset.val.batch_size))
 
     train_init_op = dataset.train.init_op
     val_init_op = dataset.val.init_op
 
     next_batch = dataset.next_batch
+
+    total_loss, obj_loss = loss[0], loss[1]
 
     # # begin training
     with tf.Session() as sess:
@@ -270,13 +272,13 @@ def train(train_op, update_op, loss, feeds, dataset, epochs, saver, logdir, disp
                 x_batch, y_batch = sess.run(next_batch)
 
                 feed_dict = dict(zip([*feeds], [x_batch, y_batch, True]))
-                _, _, obj_loss = sess.run([train_op, update_op, loss], feed_dict=feed_dict)
+                _, _, _, obj_loss_val = sess.run([train_op, update_op, total_loss, obj_loss], feed_dict=feed_dict)
 
-                rel_loss = obj_loss / np.mean(np.square(y_batch))
+                rel_loss = obj_loss_val / np.mean(np.square(y_batch))
 
                 if batch % display_step == 0:
                     print("{}, epoch: {}, loss: {:.8f}, rel loss: {:.9f}"
-                          .format(datetime.now().strftime(TIME_FORMAT), epoch + 1, obj_loss, rel_loss))
+                          .format(datetime.now().strftime(TIME_FORMAT), epoch + 1, obj_loss_val, rel_loss))
 
                     feed_dict = dict(zip([*feeds], [x_batch, y_batch, False]))
                     s = sess.run(merged_summary, feed_dict=feed_dict)
@@ -294,9 +296,9 @@ def train(train_op, update_op, loss, feeds, dataset, epochs, saver, logdir, disp
                 x_batch, y_batch = sess.run(next_batch)
 
                 feed_dict = dict(zip([*feeds], [x_batch, y_batch, False]))
-                obj_loss = sess.run([loss], feed_dict=feed_dict)
+                obj_loss_val = sess.run([obj_loss], feed_dict=feed_dict)
 
-                loss_list.append(obj_loss)
+                loss_list.append(obj_loss_val)
 
                 if b % display_step == 0:
                     s = sess.run(merged_summary, feed_dict=feed_dict)
